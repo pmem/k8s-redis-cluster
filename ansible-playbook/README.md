@@ -1,10 +1,10 @@
 [//]: # (SPDX-License-Identifier: BSD-3-Clause)
-[//]: # (Copyright 2021, Intel Corporation)
+[//]: # (Copyright 2021-2022, Intel Corporation)
 
 # redis-cluster and memtier_benchmark on k8s playbooks
 
 ## General info
-The redis-cluster testing can be run for **Redis** or for **TieredMemDB**, to choose between the databases set the `test_mode` variable value to `redis` or to `tmdb`.
+The redis-cluster testing can be run for [**Redis**](https://redis.io/) or for [**TieredMemDB**](https://tieredmemdb.io/), to choose between the databases set the `test_mode` variable value to `redis` or to `tmdb`.
 
 The test can be run in three variants:
 * **single cluster** - when only one redis-cluster is deployed and benchmarked;
@@ -17,8 +17,10 @@ The test can be run in three variants:
 #### Inventory file
 To create an `inventory` file, copy the content of `inventory.example` file and replace the example hostnames for `[computes]`, `[utility]` and `[clients]` groups with own hostnames or IPs.
 * The `[computes]` group specifies k8s nodes, where redis-cluster(s) instances are deployed.
-* The `[utility]` group specifies a node, which runs the playbooks (ansible controller). The node can reside outside of the k8s cluster, but it needs to be able to communicate with the cluster.
+* The `[utility]` group specifies a node, which runs the playbooks (Ansible controller). The node can reside outside of the k8s cluster, but it needs to be able to communicate with the cluster.
 * The `[clients]` group specifies k8s nodes, which run memtier_benchmark instances.
+
+Then, to enable passwordless connection, generate ssh keys for all the hosts specified in `inventory` file and copy them to `[utility]` node.
 
 #### Changing default values of environment variables
 There are two ways to change default values of environment variables:
@@ -37,6 +39,9 @@ To export benchmark results to S3 bucket right after testcase run, specify [S3 b
 clusters_count=<optional> run_id=<run_identifier> ansible-playbook -i inventory run_benchmark.yml --extra-vars "@vars/s3_vars.yml"
 ```
 
+#### Preparing for running playbooks behind proxy server
+To run playbooks behind proxy, specify default values of [Proxy specific](#proxy-specific) variables in `vars/proxy_vars.yml`. Then, invoke playbooks as usual (as described in [How to run](#how-to-run) section).
+
 ### Testcase execution
 
 #### Running single cluster testcase
@@ -49,6 +54,9 @@ To run multiple clusters testcase, the `clusters_count` variable needs to be set
 For a single cluster case, cluster objects are deployed to `redis-cluster1` k8s namespace.\
 For multiple clusters, each redis-cluster is created in separate namespace named according to the convention: `redis-cluster<cluster-number>`.
 
+#### Test run identifier
+By default the value of `run_id` variable is set according to the convention: `<four-character-random-hash>-th{{ threads }}-cln{{ clients }}-p{{ pipeline }}-req{{ requests }}`. It can be accessed after execution of `populate.yml` playbook in `group_vars/all` file.
+
 ### After execution
 
 #### Collecting results
@@ -57,6 +65,10 @@ Benchmark logs and run metadata are uploaded to `{{ logdir_default }}/{{ log_dir
 ## How to run
 
 ### Prework
+Prepare OS for running Ansible playbooks - install Ansible and other necessary Python packages using pip (needs to be run only once):
+```shell
+pip3 install -r utils/controller_requirements.txt
+```
 Prepare OS for running benchmarking playbooks - install necessary Python packages and Ansible collections (needs to be run only once):
 ```shell
 ansible-playbook -i inventory setup.yml
@@ -82,12 +94,12 @@ clusters_count=<optional> test_mode=<redis_or_tmdb> ansible-playbook -i inventor
 ```shell
 clusters_count=<optional> run_id=<run_identifier> ansible-playbook -i inventory populate.yml
 ```
-> For this step you can modify [memtier_benchmark specific](#memtier_benchmark-specific) variables.
+> For this step you can modify selected [memtier_benchmark specific](#memtier_benchmark-specific) variables.
 
 \
-**3. Run memtier_benchmark** (use the same `run_id` as in the population step):
+**3. Run memtier_benchmark**:
 ```shell
-clusters_count=<optional> run_id=<run_identifier> ansible-playbook -i inventory run_benchmark.yml [--extra-vars "@vars/s3_vars.yml"]
+clusters_count=<optional> ansible-playbook -i inventory run_benchmark.yml [--extra-vars "@vars/s3_vars.yml"]
 ```
 > For this step you can modify [memtier_benchmark specific](#memtier_benchmark-specific) variables.
 
@@ -105,11 +117,11 @@ clusters_count=<optional> test_mode=<redis_or_tmdb> run_id=<run_identifier> ansi
 ## Environment variables (selection)
 
 ### General
-* `run_id`
 * `test_mode`: Possible values - `redis` or `tmdb`;
 * `clusters_count`: Number of redis-clusters to deploy (default: `1`);
 * `collect_emon_data`: Specifies whether to run EMON during benchmark execution (default: `False`);
 * `multiple_clusters_balanced`: Specifies whether to run balanced testcase (default: `True`) (further description in [General info](#general-info));
+* `run_id`: Test run identifier (default: auto-generated value) (further description in [Test run identifier](#test-run-identifier));
 * `warm_up_benchmark_run`: Specifies whether to run one warm-up benchmark run before test execution (default: `False`);
 
 ### Redis & TieredMemDB specific
@@ -119,10 +131,15 @@ clusters_count=<optional> test_mode=<redis_or_tmdb> run_id=<run_identifier> ansi
 * `pmem_variant`: Specifies variant of Persistent Memory allocation (default: `multiple`)
 
 ### memtier_benchmark specific
-* `clients`
-* `datasize`
-* `pipeline`
-* `requests`
+* `clients`: Number of clients per thread (default: `3`);
+* `datasize`: Object data size in bytes (default: `1024`);
+* `key_pattern`: Set:Get requests pattern used for benchmark execution (default: `G:G`);
+* `pipeline`: Number of concurrent pipelined requests (default: `1`);
+* `ratio`: Set:Get requests ratio used for benchmark execution (default: `1:4`);
+* `requests`: Number of total requests per client (default: `150000000`);
+* `run_count`: Number of full-test iterations to perform during benchmark execution (default: `3`);
+* `test_time`: Number of seconds to run one full-test iteration during benchmark execution (default: `1800`);
+* `threads`: Number of threads (default: `8`);
 
 ### S3 bucket specific
 * `S3_ACCESS_KEY`
@@ -131,11 +148,18 @@ clusters_count=<optional> test_mode=<redis_or_tmdb> run_id=<run_identifier> ansi
 * `S3_SECRET_KEY`
 
 ### Registry specific - Redis
-* `redis_registry`
-* `redis_repository`
-* `redis_tag`
+* `redis_registry`: (default: `docker.io`);
+* `redis_repository`: (default: `bitnami/redis-cluster`);
+* `redis_tag`: (default: `6.2.6-debian-10-r196`);
 
 ### Registry specific - TieredMemDB
 * `tmdb_registry`
 * `tmdb_repository`
 * `tmdb_tag`
+
+### Proxy specific
+* `no_proxy`
+* `proxy`
+
+### PMem specific
+* `pmem_generation`: Specifies whether PMem dimms available in the system are Intel Optane Persistent Memory 100 series (Apache Pass/1st gen) or Intel Optane Persistent Memory 200 series (Barlow Pass/2nd gen). Possible values - `1` or `2` (default: `2`);
