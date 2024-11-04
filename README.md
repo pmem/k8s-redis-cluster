@@ -1,3 +1,9 @@
+# PROJECT NOT UNDER ACTIVE MANAGEMENT #  
+This project will no longer be maintained by Intel.  
+This project has been identified as having known security escapes.  
+Intel has ceased development and contributions including, but not limited to, maintenance, bug fixes, new releases, or updates, to this project.  
+Intel no longer accepts patches to this project.  
+  
 [//]: # (SPDX-License-Identifier: BSD-3-Clause)
 [//]: # (Copyright 2021-2022, Intel Corporation)
 
